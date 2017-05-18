@@ -56,7 +56,7 @@ set +x
 NET_FINAL=`grep -B 1 "done solving" ${LOG} | grep "Wrote snapshot" | awk '{print $4}'`
 set -x
 
-time ./tools/test_net.py --gpu ${GPU_ID} \
+time ./tools/test_net_MC.py --gpu ${GPU_ID} \
   --def models/${PT_DIR}/${NET}/fast_rcnn/test.prototxt \
   --net ${NET_FINAL} \
   --imdb ${TEST_IMDB} \

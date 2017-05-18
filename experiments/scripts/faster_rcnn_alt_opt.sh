@@ -54,7 +54,7 @@ set +x
 NET_FINAL=`grep "Final model:" ${LOG} | awk '{print $3}'`
 set -x
 
-time ./tools/test_net.py --gpu ${GPU_ID} \
+time ./tools/test_net_MC.py --gpu ${GPU_ID} \
   --def models/${PT_DIR}/${NET}/faster_rcnn_alt_opt/faster_rcnn_test.pt \
   --net ${NET_FINAL} \
   --imdb ${TEST_IMDB} \
