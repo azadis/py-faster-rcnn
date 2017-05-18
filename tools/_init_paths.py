@@ -23,3 +23,8 @@ add_path(caffe_path)
 # Add lib to PYTHONPATH
 lib_path = osp.join(this_dir, '..', 'lib')
 add_path(lib_path)
+
+#Add DPP lib to PYTHONPATH
+lib_path = osp.join(this_dir, '../../', 'lib')
+add_path(lib_path)
+

@@ -3,6 +3,8 @@
 # Copyright (c) 2015 Microsoft
 # Licensed under The MIT License [see LICENSE for details]
 # Written by Ross Girshick
+# Modified by Samaneh Azadi
+# DPP functions Written by Samaneh Azadi
 # --------------------------------------------------------
 
 """Test a Fast R-CNN network on an imdb (image database)."""
@@ -17,7 +19,15 @@ import caffe
 from fast_rcnn.nms_wrapper import nms
 import cPickle
 from utils.blob import im_list_to_blob
-import os
+import os 
+import pickle
+import scipy.sparse as scsp
+import scipy
+import os.path
+from boxTools import *
+from dppTools import DPP
+
+
 
 def _get_image_blob(im):
     """Converts an image into a network input.
@@ -183,13 +193,15 @@ def im_detect(net, im, boxes=None):
 
     return scores, pred_boxes
 
-def vis_detections(im, class_name, dets, thresh=0.3):
+
+def vis_detections(im, class_name, dets, thresh=0.6):
     """Visual debugging of detections."""
     import matplotlib.pyplot as plt
     im = im[:, :, (2, 1, 0)]
     for i in xrange(np.minimum(10, dets.shape[0])):
         bbox = dets[i, :4]
         score = dets[i, -1]
+        print "score",score
         if score > thresh:
             plt.cla()
             plt.imshow(im)
@@ -201,6 +213,7 @@ def vis_detections(im, class_name, dets, thresh=0.3):
                 )
             plt.title('{}  {:.3f}'.format(class_name, score))
             plt.show()
+            
 
 def apply_nms(all_boxes, thresh):
     """Apply non-maximum suppression to all predicted boxes output by the
@@ -226,10 +239,13 @@ def apply_nms(all_boxes, thresh):
 
 def test_net(net, imdb, max_per_image=100, thresh=0.05, vis=False):
     """Test a Fast R-CNN network on an image database."""
+
     num_images = len(imdb.image_index)
+    thresh = cfg.TEST.SCORE_THRESH
     # all detections are collected into:
     #    all_boxes[cls][image] = N x 5 array of detections in
     #    (x1, y1, x2, y2, score)
+    print "score threshold:",thresh
     all_boxes = [[[] for _ in xrange(num_images)]
                  for _ in xrange(imdb.num_classes)]
 
@@ -240,8 +256,9 @@ def test_net(net, imdb, max_per_image=100, thresh=0.05, vis=False):
 
     if not cfg.TEST.HAS_RPN:
         roidb = imdb.roidb
-
+    
     for i in xrange(num_images):
+    
         # filter out any ground truth boxes
         if cfg.TEST.HAS_RPN:
             box_proposals = None
@@ -256,9 +273,10 @@ def test_net(net, imdb, max_per_image=100, thresh=0.05, vis=False):
         im = cv2.imread(imdb.image_path_at(i))
         _t['im_detect'].tic()
         scores, boxes = im_detect(net, im, box_proposals)
-        _t['im_detect'].toc()
 
+        _t['im_detect'].toc()
         _t['misc'].tic()
+        
         # skip j = 0, because it's the background class
         for j in xrange(1, imdb.num_classes):
             inds = np.where(scores[:, j] > thresh)[0]
@@ -267,10 +285,12 @@ def test_net(net, imdb, max_per_image=100, thresh=0.05, vis=False):
             cls_dets = np.hstack((cls_boxes, cls_scores[:, np.newaxis])) \
                 .astype(np.float32, copy=False)
             keep = nms(cls_dets, cfg.TEST.NMS)
+
             cls_dets = cls_dets[keep, :]
             if vis:
-                vis_detections(im, imdb.classes[j], cls_dets)
+                vis_detections(im, imdb.classes[j], cls_dets,cfg.TEST.SCORE_THRESH)
             all_boxes[j][i] = cls_dets
+
 
         # Limit to max_per_image detections *over all classes*
         if max_per_image > 0:
@@ -287,7 +307,213 @@ def test_net(net, imdb, max_per_image=100, thresh=0.05, vis=False):
               .format(i + 1, num_images, _t['im_detect'].average_time,
                       _t['misc'].average_time)
 
+
     det_file = os.path.join(output_dir, 'detections.pkl')
+    with open(det_file, 'wb') as f:
+        cPickle.dump(all_boxes, f, cPickle.HIGHEST_PROTOCOL)
+
+    print 'Evaluating detections'
+    imdb.evaluate_detections(all_boxes, output_dir)
+
+def test_net_MC(net, imdb, max_per_image=100, thresh=0.05, vis=False):
+    """Test a Fast R-CNN network on an image database."""
+
+    num_images = len(imdb.image_index)
+    thresh = cfg.TEST.SCORE_THRESH
+    # all detections are collected into:
+    #    all_boxes[cls][image] = N x 5 array of detections in
+    #    (x1, y1, x2, y2, score)
+    print "score threshold:",thresh
+    all_boxes = [[[] for _ in xrange(num_images)]
+                 for _ in xrange(imdb.num_classes)]
+
+    output_dir = get_output_dir(imdb, net)
+
+    # timers
+    _t = {'im_detect' : Timer(), 'misc' : Timer()}
+
+    if not cfg.TEST.HAS_RPN:
+        roidb = imdb.roidb
+    im_dets_pair = {}
+    im_det_file = os.path.join(output_dir, 'image_detections.pkl')
+    ff={}
+    for j in xrange(1,imdb.num_classes):
+        cls_file = os.path.join(output_dir, '%s_nms_mc.txt'%imdb.classes[j])
+        ff[j]=open(cls_file ,'a')
+
+    for i in xrange(num_images):
+    
+        # filter out any ground truth boxes
+        if cfg.TEST.HAS_RPN:
+            box_proposals = None
+        else:
+            # The roidb may contain ground-truth rois (for example, if the roidb
+            # comes from the training or val split). We only want to evaluate
+            # detection on the *non*-ground-truth rois. We select those the rois
+            # that have the gt_classes field set to 0, which means there's no
+            # ground truth.
+            box_proposals = roidb[i]['boxes'][roidb[i]['gt_classes'] == 0]
+
+        im = cv2.imread(imdb.image_path_at(i))
+        _t['im_detect'].tic()
+        scores, boxes = im_detect(net, im, box_proposals)
+
+        _t['im_detect'].toc()
+        
+        im_dets_pair[i] = {}
+        im_dets_pair[i]['im'] = im
+        im_dets_pair[i]['lbl'] = imdb.classes
+
+        _t['misc'].tic()
+        
+        # skip j = 0, because it's the background class
+        cls_dets_all = np.array(())
+        box_inds = []
+        for j in xrange(1, imdb.num_classes):
+            inds = np.where(scores[:, j] > thresh)[0]
+            cls_scores = scores[inds, j]
+            cls_boxes = boxes[inds, j*4:(j+1)*4]
+            cls_dets = np.hstack((cls_boxes, cls_scores[:, np.newaxis])) \
+                .astype(np.float32, copy=False)
+            keep = nms(cls_dets, cfg.TEST.NMS)
+            cls_dets = cls_dets[keep, :]
+            box_inds.extend(inds[keep])
+            
+            cls_lbl = j*np.ones((cls_dets.shape[0],1))
+            cls_dets = np.hstack((cls_dets,cls_lbl))
+            if j==1:
+                cls_dets_all = cls_dets
+            else:
+                cls_dets_all = np.vstack((cls_dets_all,cls_dets))\
+                    .astype(np.float32, copy=False)
+        box_inds = np.array(box_inds)
+        keep_MC = nms(cls_dets_all[:,:-1], cfg.TEST.MC_NMS)
+        cls_dets_all = cls_dets_all[keep_MC,:]
+
+        for j in xrange(1,imdb.num_classes):
+            keeps_j = np.where(cls_dets_all[:,-1]==j)[0]
+            cls_dets_class_j = cls_dets_all[keeps_j,:-1]
+            all_boxes[j][i] = cls_dets_class_j
+            im_dets_pair[i][j] = {}
+            im_dets_pair[i][j]['dets'] = cls_dets_class_j
+            
+            if vis:
+                vis_detections(im, imdb.classes[j], cls_dets_class_j,cfg.TEST.SCORE_THRESH)
+
+
+        # Limit to max_per_image detections *over all classes*
+        if max_per_image > 0:
+            image_scores = np.hstack([all_boxes[j][i][:, -1]
+                                      for j in xrange(1, imdb.num_classes)])
+            if len(image_scores) > max_per_image:
+                image_thresh = np.sort(image_scores)[-max_per_image]
+                for j in xrange(1, imdb.num_classes):
+                    keep = np.where(all_boxes[j][i][:, -1] >= image_thresh)[0]
+                    all_boxes[j][i] = all_boxes[j][i][keep, :]
+        _t['misc'].toc()
+
+        print 'im_detect: {:d}/{:d} {:.3f}s {:.3f}s' \
+              .format(i + 1, num_images, _t['im_detect'].average_time,
+                      _t['misc'].average_time)
+    
+    with open(im_det_file, 'wb') as f:
+        cPickle.dump(im_dets_pair, f, cPickle.HIGHEST_PROTOCOL)
+
+
+    det_file = os.path.join(output_dir, 'detections.pkl')
+    with open(det_file, 'wb') as f:
+        cPickle.dump(all_boxes, f, cPickle.HIGHEST_PROTOCOL)
+
+    print 'Evaluating detections'
+    imdb.evaluate_detections(all_boxes, output_dir)
+
+
+ 
+def dpp_test_net(net, imdb, max_per_image=100, thresh=0.2, vis=False):
+    """Test a Fast R-CNN network on an image database."""
+    num_images = len(imdb.image_index)
+    thresh = cfg.TEST.SCORE_THRESH
+    print "===> SCORE_THRESHOLD is: ", thresh 
+    # all detections are collected into:
+    #    all_boxes[cls][image] = N x 5 array of detections in
+    #    (x1, y1, x2, y2, score)
+    all_boxes = [[[] for _ in xrange(num_images)]
+                 for _ in xrange(imdb.num_classes)]
+
+    output_dir = get_output_dir(imdb, net)
+    
+    # timers
+    _t = {'im_detect' : Timer(), 'misc' : Timer()}
+
+    if not cfg.TEST.HAS_RPN:
+        roidb = imdb.roidb
+    im_dets_pair = {}
+    sim_classes = pickle.load(open(cfg.TRAIN.similarity_path,"r"))
+
+    im_det_file = os.path.join(output_dir, 'image_detections_dpp.pkl')
+
+    ff={}
+    for j in xrange(1,imdb.num_classes):
+        cls_file = os.path.join(output_dir, '%s.txt'%imdb.classes[j])
+        ff[j]=open(cls_file ,'a')
+
+    for i in xrange(num_images):
+        # filter out any ground truth boxes
+        if cfg.TEST.HAS_RPN:
+            box_proposals = None
+        else:
+            # The roidb may contain ground-truth rois (for example, if the roidb
+            # comes from the training or val split). We only want to evaluate
+            # detection on the *non*-ground-truth rois. We select those the rois
+            # that have the gt_classes field set to 0, which means there's no
+            # ground truth.
+            box_proposals = roidb[i]['boxes'][roidb[i]['gt_classes'] == 0]
+        im = cv2.imread(imdb.image_path_at(i))
+        _t['im_detect'].tic()
+        scores, boxes = im_detect(net, im, box_proposals)
+        
+        _t['im_detect'].toc()
+        _t['misc'].tic()
+        # skip j = 0, because it's the background class
+        im_dets_pair[i] = {}
+        im_dets_pair[i]['im'] = im
+        im_dets_pair[i]['lbl'] = imdb.classes
+        score_thresh = thresh
+        epsilon = 0.01 
+        DPP_ = DPP(epsilon=0.02)
+        keep = DPP_.dpp_MAP(im_dets_pair[i], scores, boxes,sim_classes,score_thresh,epsilon,max_per_image,close_thr=0.00001)
+        if len(keep['box_id']) > 0:   
+            for j in xrange(1, imdb.num_classes):
+                inds = np.where(keep['box_cls'] == j)[0]
+                box_ids = keep['box_id'][inds]
+                for per_cls in box_ids:
+                    ff[j].write("%s %g %d %d %d %d\n"%(imdb.image_path_at(i),scores[per_cls,j],boxes[per_cls,4*j],
+                    boxes[per_cls,4*j+1],boxes[per_cls,4*j+2],boxes[per_cls,4*j+3]))
+                cls_dets = np.hstack((boxes[box_ids,4*j:(j+1)*4],scores[box_ids,j][:,np.newaxis]))\
+                .astype(np.float32, copy=False)
+                all_boxes[j][i] = cls_dets
+                im_dets_pair[i][j] = {}
+                im_dets_pair[i][j]['dets'] = cls_dets
+                if vis:
+                    vis_detections(im, imdb.classes[j], cls_dets,score_thresh)    
+        else:
+            for j in xrange(1,imdb.num_classes):
+               all_boxes[j][i] = []
+        _t['misc'].toc()
+
+        print 'im_detect: {:d}/{:d} {:.3f}s {:.3f}s' \
+              .format(i + 1, num_images, _t['im_detect'].average_time,
+                      _t['misc'].average_time)
+
+    for j in xrange(1, imdb.num_classes):
+        ff[j].close()
+
+
+    with open(im_det_file, 'wb') as f:
+        cPickle.dump(im_dets_pair, f, cPickle.HIGHEST_PROTOCOL)
+
+    det_file = os.path.join(output_dir, 'detections_dpp.pkl')
+    print "det_file",det_file
     with open(det_file, 'wb') as f:
         cPickle.dump(all_boxes, f, cPickle.HIGHEST_PROTOCOL)
 

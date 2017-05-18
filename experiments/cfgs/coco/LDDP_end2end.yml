@@ -1,0 +1,13 @@
+EXP_DIR: LDDP_end2end
+TRAIN:
+  HAS_RPN: True
+  LDDP: True
+  IMS_PER_BATCH: 1
+  BBOX_NORMALIZE_TARGETS_PRECOMPUTED: True
+  RPN_POSITIVE_OVERLAP: 0.7
+  RPN_BATCHSIZE: 256
+  PROPOSAL_METHOD: gt
+  BG_THRESH_LO: 0.0
+  similarity_path: "../data/coco_semantics.pickle"
+TEST:
+  HAS_RPN: True

@@ -123,6 +123,16 @@ __C.TRAIN.RPN_BBOX_INSIDE_WEIGHTS = (1.0, 1.0, 1.0, 1.0)
 # Set to -1.0 to use uniform example weighting
 __C.TRAIN.RPN_POSITIVE_WEIGHT = -1.0
 
+# DPP Train Setting
+__C.TRAIN.LDDP = False
+__C.TRAIN.IMDB = ''
+__C.TRAIN.SIM_POWER = 1.0
+__C.TRAIN.PROB_THRESH = 0.00001
+__C.TRAIN.vis = 0
+__C.TRAIN.IoU_gt_thresh = 0.5
+__C.TRAIN.IGNORANCE = 0.2
+__C.TRAIN.similarity_path = '' #"../data/semantic_similarity/pascal_voc_semantics.pickle" 
+__C.TRAIN.info = "../data/info.json" 
 
 #
 # Testing options
@@ -162,6 +172,17 @@ __C.TEST.RPN_PRE_NMS_TOP_N = 6000
 __C.TEST.RPN_POST_NMS_TOP_N = 300
 # Proposal height and width both need to be greater than RPN_MIN_SIZE (at orig image scale)
 __C.TEST.RPN_MIN_SIZE = 16
+
+# DPP probability threshold
+__C.TEST.PROB_THRESH = 0.4
+
+# NMS and DPP SCORE_THRESH
+__C.TEST.SCORE_THRESH = 0.05
+
+# DPP Test Setting
+__C.TEST.SIM_POWER = 4.0
+__C.TEST.MC_NMS = 0.7
+__C.TEST.DPP_NMS = 0.001
 
 
 #
@@ -265,6 +286,7 @@ def cfg_from_file(filename):
 def cfg_from_list(cfg_list):
     """Set config keys via list (e.g., from command line)."""
     from ast import literal_eval
+    print cfg_list,len(cfg_list),len(cfg_list) % 2
     assert len(cfg_list) % 2 == 0
     for k, v in zip(cfg_list[0::2], cfg_list[1::2]):
         key_list = k.split('.')

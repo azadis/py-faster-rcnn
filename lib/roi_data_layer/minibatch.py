@@ -3,7 +3,8 @@
 # Copyright (c) 2015 Microsoft
 # Licensed under The MIT License [see LICENSE for details]
 # Written by Ross Girshick
-# --------------------------------------------------------
+# Modified by Samaneh Azadi for LDDP network
+# -------------------------------------------------------
 
 """Compute minibatch blobs for training a Fast R-CNN network."""
 
@@ -11,10 +12,14 @@ import numpy as np
 import numpy.random as npr
 import cv2
 from fast_rcnn.config import cfg
+import roi_data_layer.roidb as rdl_roidb
 from utils.blob import prep_im_for_blob, im_list_to_blob
 
 def get_minibatch(roidb, num_classes):
     """Given a roidb, construct a minibatch sampled from it."""
+    bbox_means, bbox_stds = \
+        rdl_roidb.add_bbox_regression_targets(roidb)
+
     num_images = len(roidb)
     # Sample random scales to use for each image in this batch
     random_scale_inds = npr.randint(0, high=len(cfg.TRAIN.SCALES),
@@ -38,12 +43,20 @@ def get_minibatch(roidb, num_classes):
         gt_boxes = np.empty((len(gt_inds), 5), dtype=np.float32)
         gt_boxes[:, 0:4] = roidb[0]['boxes'][gt_inds, :] * im_scales[0]
         gt_boxes[:, 4] = roidb[0]['gt_classes'][gt_inds]
+        blobs['means'] = bbox_means
+        blobs['stds'] = bbox_stds
         blobs['gt_boxes'] = gt_boxes
         blobs['im_info'] = np.array(
             [[im_blob.shape[2], im_blob.shape[3], im_scales[0]]],
             dtype=np.float32)
     else: # not using RPN
-        # Now, build the region of interest and label blobs
+        # gt boxes: (x1, y1, x2, y2, cls)
+        gt_inds = np.where(roidb[0]['gt_classes'] != 0)[0]
+        gt_boxes = np.empty((len(gt_inds), 5), dtype=np.float32)
+        gt_boxes[:, 0:4] = roidb[0]['boxes'][gt_inds, :] * im_scales[0]
+        gt_boxes[:, 4] = roidb[0]['gt_classes'][gt_inds]
+        
+        # Now, build the region of interest and label blobs        
         rois_blob = np.zeros((0, 5), dtype=np.float32)
         labels_blob = np.zeros((0), dtype=np.float32)
         bbox_targets_blob = np.zeros((0, 4 * num_classes), dtype=np.float32)
@@ -77,7 +90,10 @@ def get_minibatch(roidb, num_classes):
             blobs['bbox_inside_weights'] = bbox_inside_blob
             blobs['bbox_outside_weights'] = \
                 np.array(bbox_inside_blob > 0).astype(np.float32)
-
+                
+        blobs['gt_boxes']=gt_boxes
+        
+        
     return blobs
 
 def _sample_rois(roidb, fg_rois_per_image, rois_per_image, num_classes):

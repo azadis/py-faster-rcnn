@@ -3,6 +3,7 @@
 # Copyright (c) 2015 Microsoft
 # Licensed under The MIT License [see LICENSE for details]
 # Written by Ross Girshick
+# Modified by Samaneh Azadi for LDDP layer
 # --------------------------------------------------------
 
 """The data layer used during training to train a Fast R-CNN network.
@@ -101,10 +102,17 @@ class RoIDataLayer(caffe.Layer):
             top[idx].reshape(1, 3)
             self._name_to_top_map['im_info'] = idx
             idx += 1
-
             top[idx].reshape(1, 4)
             self._name_to_top_map['gt_boxes'] = idx
             idx += 1
+            if cfg.TRAIN.LDDP:        
+                top[idx].reshape(1, 4)
+                self._name_to_top_map['means'] = idx
+                idx += 1
+                top[idx].reshape(1, 4)
+                self._name_to_top_map['stds'] = idx
+                idx += 1
+
         else: # not using RPN
             # rois blob: holds R regions of interest, each is a 5-tuple
             # (n, x1, y1, x2, y2) specifying an image batch index n and a
@@ -112,13 +120,12 @@ class RoIDataLayer(caffe.Layer):
             top[idx].reshape(1, 5)
             self._name_to_top_map['rois'] = idx
             idx += 1
-
             # labels blob: R categorical labels in [0, ..., K] for K foreground
             # classes plus background
             top[idx].reshape(1)
             self._name_to_top_map['labels'] = idx
             idx += 1
-
+            
             if cfg.TRAIN.BBOX_REG:
                 # bbox_targets blob: R bounding-box regression targets with 4
                 # targets per class
@@ -135,14 +142,19 @@ class RoIDataLayer(caffe.Layer):
                 top[idx].reshape(1, self._num_classes * 4)
                 self._name_to_top_map['bbox_outside_weights'] = idx
                 idx += 1
+            
+            top[idx].reshape(1, 4)
+            self._name_to_top_map['gt_boxes'] = idx
+            idx += 1
+                            
 
         print 'RoiDataLayer: name_to_top:', self._name_to_top_map
         assert len(top) == len(self._name_to_top_map)
 
     def forward(self, bottom, top):
         """Get blobs and copy them into this layer's top blob vector."""
+        
         blobs = self._get_next_minibatch()
-
         for blob_name, blob in blobs.iteritems():
             top_ind = self._name_to_top_map[blob_name]
             # Reshape net's input blobs
