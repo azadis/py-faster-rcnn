@@ -334,12 +334,6 @@ def test_net_MC(net, imdb, max_per_image=100, thresh=0.05, vis=False):
 
     if not cfg.TEST.HAS_RPN:
         roidb = imdb.roidb
-    im_dets_pair = {}
-    im_det_file = os.path.join(output_dir, 'image_detections.pkl')
-    ff={}
-    for j in xrange(1,imdb.num_classes):
-        cls_file = os.path.join(output_dir, '%s_nms_mc.txt'%imdb.classes[j])
-        ff[j]=open(cls_file ,'a')
 
     for i in xrange(num_images):
     
@@ -360,10 +354,6 @@ def test_net_MC(net, imdb, max_per_image=100, thresh=0.05, vis=False):
 
         _t['im_detect'].toc()
         
-        im_dets_pair[i] = {}
-        im_dets_pair[i]['im'] = im
-        im_dets_pair[i]['lbl'] = imdb.classes
-
         _t['misc'].tic()
         
         # skip j = 0, because it's the background class
@@ -394,8 +384,6 @@ def test_net_MC(net, imdb, max_per_image=100, thresh=0.05, vis=False):
             keeps_j = np.where(cls_dets_all[:,-1]==j)[0]
             cls_dets_class_j = cls_dets_all[keeps_j,:-1]
             all_boxes[j][i] = cls_dets_class_j
-            im_dets_pair[i][j] = {}
-            im_dets_pair[i][j]['dets'] = cls_dets_class_j
             
             if vis:
                 vis_detections(im, imdb.classes[j], cls_dets_class_j,cfg.TEST.SCORE_THRESH)
@@ -416,8 +404,6 @@ def test_net_MC(net, imdb, max_per_image=100, thresh=0.05, vis=False):
               .format(i + 1, num_images, _t['im_detect'].average_time,
                       _t['misc'].average_time)
     
-    with open(im_det_file, 'wb') as f:
-        cPickle.dump(im_dets_pair, f, cPickle.HIGHEST_PROTOCOL)
 
 
     det_file = os.path.join(output_dir, 'detections.pkl')
@@ -450,7 +436,6 @@ def dpp_test_net(net, imdb, max_per_image=100, thresh=0.2, vis=False):
     im_dets_pair = {}
     sim_classes = pickle.load(open(cfg.TRAIN.similarity_path,"r"))
 
-    im_det_file = os.path.join(output_dir, 'image_detections_dpp.pkl')
 
     ff={}
     for j in xrange(1,imdb.num_classes):
@@ -508,12 +493,7 @@ def dpp_test_net(net, imdb, max_per_image=100, thresh=0.2, vis=False):
     for j in xrange(1, imdb.num_classes):
         ff[j].close()
 
-
-    with open(im_det_file, 'wb') as f:
-        cPickle.dump(im_dets_pair, f, cPickle.HIGHEST_PROTOCOL)
-
     det_file = os.path.join(output_dir, 'detections_dpp.pkl')
-    print "det_file",det_file
     with open(det_file, 'wb') as f:
         cPickle.dump(all_boxes, f, cPickle.HIGHEST_PROTOCOL)
 
